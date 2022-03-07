@@ -16,7 +16,6 @@ type MetaStore struct {
 }
 
 func (m *MetaStore) GetFileInfoMap(ctx context.Context, _ *emptypb.Empty) (*FileInfoMap, error) {
-	//panic("todo")
 	m.mtx.Lock()
 	defer m.mtx.Unlock()
 	return &FileInfoMap{
@@ -25,7 +24,6 @@ func (m *MetaStore) GetFileInfoMap(ctx context.Context, _ *emptypb.Empty) (*File
 }
 
 func (m *MetaStore) UpdateFile(ctx context.Context, fileMetaData *FileMetaData) (*Version, error) {
-	//panic("todo")
 	m.mtx.Lock()
 	defer m.mtx.Unlock()
 	fileName := fileMetaData.GetFilename()

@@ -2,7 +2,6 @@ package surfstore
 
 import (
 	context "context"
-	"errors"
 	"math"
 	"sync"
 	"time"
@@ -29,6 +28,10 @@ type RaftSurfstore struct {
 	ipList   []string
 	serverId int64
 
+	// volatile state on leaders
+	nextIndex  []int64
+	matchIndex []int64
+
 	// Leader protection
 	isLeaderMutex sync.RWMutex
 	isLeaderCond  *sync.Cond
@@ -43,15 +46,27 @@ type RaftSurfstore struct {
 }
 
 func (s *RaftSurfstore) GetFileInfoMap(ctx context.Context, empty *emptypb.Empty) (*FileInfoMap, error) {
-
+	if !s.isLeader {
+		return &FileInfoMap{}, ERR_NOT_LEADER
+	}
+	return &FileInfoMap{
+		FileInfoMap: s.metaStore.FileMetaMap,
+	}, nil
 }
 
 func (s *RaftSurfstore) GetBlockStoreAddr(ctx context.Context, empty *emptypb.Empty) (*BlockStoreAddr, error) {
-	panic("todo")
-	return nil, nil
+	if !s.isLeader {
+		return &BlockStoreAddr{}, ERR_NOT_LEADER
+	}
+	// ???
+	return &BlockStoreAddr{Addr: "localhost:8081"}, nil
 }
 
 func (s *RaftSurfstore) UpdateFile(ctx context.Context, filemeta *FileMetaData) (*Version, error) {
+	if !s.isLeader {
+		return &Version{}, ERR_NOT_LEADER
+	}
+
 	op := UpdateOperation{
 		Term:         s.term,
 		FileMetaData: filemeta,
@@ -138,7 +153,7 @@ func (s *RaftSurfstore) commitEntry(serverIdx, entryIdx int64, commitChan chan *
 func (s *RaftSurfstore) AppendEntries(ctx context.Context, input *AppendEntryInput) (*AppendEntryOutput, error) {
 	// if crashed, return err
 	if s.isCrashed {
-		return &AppendEntryOutput{}, errors.New("isCrashed")
+		return &AppendEntryOutput{}, ERR_SERVER_CRASHED
 	}
 
 	// step down from leader, if AppendEntryOutput response is higher term
@@ -179,7 +194,7 @@ func (s *RaftSurfstore) AppendEntries(ctx context.Context, input *AppendEntryInp
 // This should set the leader status and any related variables as if the node has just won an election
 func (s *RaftSurfstore) SetLeader(ctx context.Context, _ *emptypb.Empty) (*Success, error) {
 	if s.isCrashed {
-		return &Success{Flag: false}, errors.New("isCrashed")
+		return &Success{Flag: false}, ERR_SERVER_CRASHED
 	}
 
 	// otherwise, set leader; term++, broadcast heartbeat
@@ -192,11 +207,11 @@ func (s *RaftSurfstore) SetLeader(ctx context.Context, _ *emptypb.Empty) (*Succe
 // Only leaders send heartbeats, if the node is not the leader you can return Success = false
 func (s *RaftSurfstore) SendHeartbeat(ctx context.Context, _ *emptypb.Empty) (*Success, error) {
 	if s.isCrashed {
-		return &Success{Flag: false}, errors.New("isCrashed")
+		return &Success{Flag: false}, ERR_SERVER_CRASHED
 	}
 	// not leader, do nothing
 	if !s.isLeader {
-		return &Success{Flag: false}, nil
+		return &Success{Flag: false}, ERR_NOT_LEADER
 	}
 
 	//  send a round of appendentries
